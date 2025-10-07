@@ -33,35 +33,6 @@ else:
 
 # ---------- Simple web "tool" the Researcher can call ----------
 
-# def fetch_url_summary(url: str) -> str:
-#     """Fetch a URL and return a short summary (title + first ~600 chars)."""
-#     headers = {
-#         "User-Agent": (
-#             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-#             "AppleWebKit/537.36 (KHTML, like Gecko) "
-#             "Chrome/128.0.0.0 Safari/537.36"
-#         ),
-#         "Accept-Language": "en-US,en;q=0.9",
-#         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-#         "Referer": "https://www.google.com/",
-#         "Connection": "keep-alive",
-#     }
-#     resp = requests.get(url,headers=headers, timeout=20)
-#     resp.raise_for_status()
-#     soup = BeautifulSoup(resp.text, "html.parser")
-#     print(" >>>>>>>> soup <<<<<<<<" )
-#     print("soup", soup)
-#     print(" >>>>>>> soup <<<<<<<<" )
-#     title = (soup.title.string.strip() if soup.title and soup.title.string else url)
-#     # Basic text scrape (very naive, good enough for demo)
-#     text = " ".join(s.strip() for s in soup.get_text(" ").split())
-#     snippet = text[:600]
-#     return f"TITLE: {title}\nURL: {url}\nSNIPPET: {snippet}"
-
-
-
-
-
 def fetch_url_summary(url: str) -> str:
     """Fetch a page (JS-rendered if needed) and summarize it."""
     with sync_playwright() as p:
@@ -138,4 +109,4 @@ async def run(task: str) -> None:
 if __name__ == "__main__":
     # Example task:
     # - Try with a real website you own/are allowed to crawl, or replace with a static URL.
-    asyncio.run(run("Analyze https://www.bancatransilvania.ro/credite/calculatorul-de-rate and write Playwright tests to test if there are the 'Simulator de credit' title exist in page."))
+    asyncio.run(run("Analyze https://demo.testfire.net/and write Playwright tests to test if there are the 'Personal' title exist in page."))
