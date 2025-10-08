@@ -16,11 +16,11 @@ def build_model_client():
     if os.getenv("AZURE_OPENAI_ENDPOINT"):
         return AzureOpenAIChatCompletionClient(
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
         )
-    return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4o"))
+    return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
 
 
 # ---------- Simple web "tool" the Researcher can call ----------
