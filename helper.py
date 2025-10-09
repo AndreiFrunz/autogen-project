@@ -10,7 +10,7 @@ def clean_html_with_playwright(
     preserve_whitespace_tags: Iterable[str] = ("pre", "code", "kbd", "samp", "textarea"),
     drop_empty: bool = True,
     headless: bool = False,
-    timeout_ms: int = 30000,
+    # timeout_ms: int = 30000,
 ) -> str:
     """
     Produce a compact HTML snapshot that keeps structure, class/id, and text.

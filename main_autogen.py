@@ -97,6 +97,7 @@ def build_team():
             Output Requirements:
             * Provide only the JavaScript code (no extra explanations or text outside of the code block).
             * Each test case must be returned as a separate test function.
+            * Provide the Javascript code ready to be put in one file, so do not add duplicated imports, variables or constants.                           
             When ready, HAND OFF to 'manager'.
         """).strip()
     )
