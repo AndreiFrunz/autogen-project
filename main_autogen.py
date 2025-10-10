@@ -27,43 +27,56 @@ def build_team():
     manager = AssistantAgent(
         name="manager",
         model_client=model_client,
-        handoffs=["researcher", "tester"],  # who manager can hand off to
+        handoffs=["html_locator", "tester"],
         system_message=textwrap.dedent("""
             You are the Manager. Orchestrate the workflow:
-            1) You will receive a scenario and an url and HAND OFF those to 'researcher' 
-	        2) The ‘researcher’ will use tools to access the page and analyze the html content of page
-            3) After ‘researcher’ analyze the content page will create some testing scenarios based on what scenario received from the ‘manager’
-            4) Then HAND OFF to ’tester’ to produce one Playwright-style test(JS) to cover all scenarios received from ‘researcher’	
-            5) When done, summarize the final outcome for the user and add 'TERMINATE'.
-            Be brief and structured. Do not invent or add some steps, stay strict to these steps
+            1) Receive a scenario and a URL from the user.
+            2) HAND OFF both to 'html_locator'.
+            3) 'html_locator' will extract and clean the HTML content of the page.
+            4) Then, 'html_locator' HANDS OFF to 'researcher' with the cleaned HTML and scenario.
+            5) 'researcher' will analyze the HTML and scenario, and generate structured test cases in JSON format.
+            6) Then HAND OFF to 'tester' to produce Playwright-style JavaScript tests.
+            7) When done, summarize the final outcome for the user and add 'TERMINATE'.
+            Be brief and structured. Do not invent or add steps. Follow this flow strictly.
+        """).strip()
+    )
+
+    html_locator = AssistantAgent(
+        name="html_locator",
+        model_client=model_client,
+        handoffs=["researcher"],
+        tools=[clean_html_with_playwright],
+        description=textwrap.dedent("""
+            An AI agent specialized in extracting and cleaning HTML content from web pages.
+            Uses Playwright to retrieve and sanitize HTML for further analysis.
+        """).strip(),
+        system_message=textwrap.dedent("""
+            You are the HTML Locator.
+            Your job is to extract and clean the HTML content from a given URL using the tool clean_html_with_playwright(url).
+            Once the HTML is retrieved, HAND OFF to 'researcher' along with the original scenario.
+            Do not analyze or interpret the HTML. Just retrieve and pass it on.
         """).strip()
     )
 
     researcher = AssistantAgent(
         name="researcher",
         model_client=model_client,
-        handoffs=["tester", "manager"],
-        tools=[clean_html_with_playwright],
+        handoffs=["tester"],
         description=textwrap.dedent("""
-            A helpful and general-purpose AI assistant that has strong language skills, 
-            HTML, CSS, Javascript, Python, Playwright and Linux command line skills
-         """).strip(),
+            A helpful and general-purpose AI assistant with strong skills in HTML, CSS, JavaScript, Python, Playwright, and test case design.
+        """).strip(),
         system_message=textwrap.dedent("""
-             You are the Researcher.
-            Your job is to generate clear and structured test cases for a given website/url.
-	        If given a URL, call clean_html_with_playwright(url).
-            Analyse the html received after running the clean_html_with_playwright tool and the test scenario which will be provided to you.
-	        Each test case must contain the following sections:
-            Test Name – a short, descriptive title.
-            Preconditions – any setup, environment, or assumptions required before execution.
-            Steps – a numbered list of precise, actionable steps.
-            Identifiers - id/class/html-tags with text content of the components which are involved in test 
-            (id,class - are definited in html inside a tag like in this example: <div class="class-name" id="id-name">content</div>)
-            (tags: <button>,<a>, <html>, <div>, <p>, <span>)                                                                                     
-            Expected Result
-	        All test cases must be returned in valid JSON format, as an array of objects.
-            Do not include explanations, notes, or text outside of the JSON output.
-            After you present findings togheter with the html of that url, HAND OFF to 'tester'.
+            You are the Researcher.
+            Your job is to generate clear and structured test cases for a given website and scenario.
+            You will receive cleaned HTML and a scenario.
+            Analyze both and produce test cases in JSON format. Each test case must include:
+            - Test Name
+            - Preconditions
+            - Steps (numbered)
+            - Identifiers (id/class/html-tags with text content)
+            - Expected Result
+            Output only valid JSON (array of objects). No extra text.
+            When done, HAND OFF to 'tester'.
         """).strip()
     )
 
@@ -72,38 +85,31 @@ def build_team():
         model_client=model_client,
         handoffs=["manager"],
         description=textwrap.dedent("""
-            A helpful and general-purpose AI assistant that has strong language skills, 
-            HTML, CSS, Javascript, Python, Playwright and Linux command line skills
+            A skilled AI assistant in writing Playwright tests using JavaScript.
         """).strip(),
         system_message=textwrap.dedent("""
-            You are the Test Writer. 
-            Using the “researcher” agent, get the html and test cases in JSON format.
-            Your job is to convert structured test cases (provided in JSON format) into Playwright test scripts written in JavaScript, based on the html structure you received.
-            Each generated test must follow these rules:
-            * Input will always be a JSON array of test case objects.
-            * Generate Playwright test code only for the test cases given in the JSON.
-            * Do not create, assume, or invent test cases or functionality that are not explicitly present in the input JSON.
-            * Each script must be self-contained and runnable without external dependencies.
-            * Use Playwright’s @playwright/test syntax.
-            * Include clear comments explaining key steps for readability.
-            * Ensure the script reflects the exact steps and expected results from the JSON.
-            * If the JSON does not provide enough detail, clearly state that more information is required instead of making assumptions.
-            Mapping Rules (JSON → Playwright):
-            * testName → Used as the test title inside test("...").
-            * preconditions → Converted into setup code or comments before the steps.
-            * steps → Each step becomes a Playwright command or descriptive comment.
-            * identifiers -> each component which are involved in testing                           
-            * expectedResult → Represented as an assertion (expect) at the end of the test.
-            Output Requirements:
-            * Provide only the JavaScript code (no extra explanations or text outside of the code block).
-            * Each test case must be returned as a separate test function.
-            * Provide the Javascript code ready to be put in one file, so do not add duplicated imports, variables or constants.                           
-            When ready, HAND OFF to 'manager'.
+            You are the Test Writer.
+            You will receive structured test cases in JSON format and the HTML structure.
+            Convert each test case into a Playwright test script using @playwright/test syntax and include accept cookies in test after page.goto().
+            Add timeout(500) after each click.
+            Follow these rules:
+            - Use only the provided test cases.
+            - Do not invent or assume functionality.
+            - Each test must be self-contained and runnable.
+            - Include comments for clarity.
+            - Map JSON fields to Playwright code as follows:
+            * testName → test("...")
+            * preconditions → setup code or comments
+            * steps → Playwright commands or comments
+            * identifiers → used to locate elements
+            * expectedResult → assertions
+            Output only JavaScript code, ready to be placed in a single file.
+            When done, HAND OFF to 'manager'.
         """).strip()
     )
 
     termination = TextMentionTermination("TERMINATE")
-    return Swarm([manager, researcher, tester], termination_condition=termination), model_client
+    return Swarm([manager, html_locator, researcher, tester], termination_condition=termination), model_client
 
 async def run_pipeline(task: str) -> str:
     team, model_client = build_team()

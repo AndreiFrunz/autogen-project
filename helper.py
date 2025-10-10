@@ -2,50 +2,61 @@ from typing import Iterable, Optional
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+from typing import Optional, Iterable
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+from typing import Optional, Iterable
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
 def clean_html_with_playwright(
     *,
     url: Optional[str] = None,
     html: Optional[str] = None,
-    allowed_attrs: Iterable[str] = ("class", "id"),
+    allowed_attrs: Iterable[str] = ("class", "id", "role"),
     preserve_whitespace_tags: Iterable[str] = ("pre", "code", "kbd", "samp", "textarea"),
+    preserve_semantic_tags: bool = True,
+    preserve_custom_tags: Optional[Iterable[str]] = None,
     drop_empty: bool = True,
     headless: bool = False,
     timeout_ms: int = 30000,
 ) -> str:
     """
-    Produce a compact HTML snapshot that keeps structure, class/id, and text.
-
-    One of `url` or `html` is required.
-      - If `url` is provided, the page is loaded and then cleaned.
-      - If `html` is provided, it is parsed via page.set_content() and cleaned (no network).
+    Produce a compact HTML snapshot that keeps structure, class/id/role/data/aria, and text.
 
     Parameters:
-      allowed_attrs: which attributes to keep on elements (default: class, id).
-      preserve_whitespace_tags: tags whose text whitespace is NOT collapsed.
-      drop_empty: remove elements that have no children, no text, and no id/class.
-      headless: run Chromium headless/headful.
-      timeout_ms: navigation timeout for URL loads.
+      url or html: one must be provided.
+      allowed_attrs: attributes to preserve (default: class, id, role).
+      preserve_whitespace_tags: tags whose text whitespace is preserved.
+      preserve_semantic_tags: if True, semantic tags are preserved even if empty.
+      preserve_custom_tags: additional tag names to preserve even if empty.
+      drop_empty: remove elements with no content or useful attributes.
+      headless: run browser in headless mode.
+      timeout_ms: timeout for page load.
 
     Returns:
-      A cleaned/minified HTML string (body content).
+      Cleaned HTML string.
     """
     if (url is None) == (html is None):
         raise ValueError("Provide exactly one of `url` or `html`.")
 
     js_cleaner = """
     (opts) => {
-      const allowed = new Set((opts.allowed_attrs || ['class','id']).map(s => String(s).toLowerCase()));
+      const allowed = new Set((opts.allowed_attrs || ['class','id','role']).map(s => String(s).toLowerCase()));
       const preserve = new Set((opts.preserve_whitespace_tags || ['pre','code','kbd','samp','textarea']).map(s => String(s).toLowerCase()));
+      const semanticTags = new Set([
+        'article', 'section', 'nav', 'aside', 'main',
+        'header', 'footer', 'figure', 'figcaption',
+        'mark', 'time'
+      ]);
+      const customTags = new Set((opts.preserve_custom_tags || []).map(s => String(s).toLowerCase()));
 
-      // Work on a clone so we don't mutate the live page
       const root = document.body.cloneNode(true);
 
       const shouldStripWholeTag = (el) => {
         const t = el.tagName.toLowerCase();
-        return t === 'script' || t === 'style' || t === 'noscript' || t === 'template' || t === 'iframe' || t === 'object' || t === 'embed';
+        return ['script','style','noscript','template','iframe','object','embed'].includes(t);
       };
 
-      // Gather nodes to remove to avoid invalidating the walker during iteration
       const toRemove = [];
       const walker = document.createTreeWalker(
         root,
@@ -68,19 +79,22 @@ def clean_html_with_playwright(
             continue;
           }
 
-          // Drop all attributes except those explicitly allowed
           for (const name of Array.from(el.getAttributeNames())) {
-            if (!allowed.has(name.toLowerCase())) {
-              el.removeAttribute(name);
+            const lower = name.toLowerCase();
+            if (
+              allowed.has(lower) ||
+              lower.startsWith("data-") ||
+              lower.startsWith("aria-")
+            ) {
+              continue;
             }
+            el.removeAttribute(name);
           }
 
-          // Remove empty class/id attributes
           if (el.hasAttribute('class') && !el.getAttribute('class').trim()) el.removeAttribute('class');
           if (el.hasAttribute('id') && !el.getAttribute('id').trim()) el.removeAttribute('id');
 
         } else if (node.nodeType === Node.TEXT_NODE) {
-          // Collapse whitespace unless inside a preserved tag
           const parent = node.parentElement;
           const tag = parent ? parent.tagName.toLowerCase() : '';
           if (!preserve.has(tag)) {
@@ -89,28 +103,30 @@ def clean_html_with_playwright(
         }
       }
 
-      // Remove queued nodes
       for (const n of toRemove) n.remove();
 
       if (opts.drop_empty) {
         const prunable = [];
         for (const el of root.querySelectorAll('*')) {
-          const hasIdOrClass = el.hasAttribute('id') || el.hasAttribute('class');
+          const tag = el.tagName.toLowerCase();
+          const isSemantic = opts.preserve_semantic_tags && semanticTags.has(tag);
+          const isCustom = customTags.has(tag);
+          const hasUsefulAttr = ['id', 'class', 'role'].some(attr => el.hasAttribute(attr));
           const hasText = (el.textContent || '').trim().length > 0;
           const hasChildElements = el.children.length > 0;
-          if (!hasIdOrClass && !hasText && !hasChildElements) {
+
+          if (!isSemantic && !isCustom && !hasUsefulAttr && !hasText && !hasChildElements) {
             prunable.push(el);
           }
         }
         for (const el of prunable) el.remove();
       }
 
-      // Serialize and squeeze inter-tag whitespace
       const container = document.createElement('div');
       container.appendChild(root);
       return container.innerHTML
-        .replace(/>\\s+</g, '><')   // remove whitespace between tags
-        .replace(/\\s{2,}/g, ' ');  // collapse leftover long runs
+        .replace(/>\\s+</g, '><')
+        .replace(/\\s{2,}/g, ' ');
     }
     """
 
@@ -131,7 +147,6 @@ def clean_html_with_playwright(
             else:
                 page.set_content(html, wait_until="domcontentloaded")
         except PlaywrightTimeoutError:
-            # Proceed with whatever loaded/parsed
             page.wait_for_load_state("domcontentloaded", timeout=5000)
 
         cleaned = page.evaluate(
@@ -140,12 +155,13 @@ def clean_html_with_playwright(
                 "allowed_attrs": list(allowed_attrs),
                 "preserve_whitespace_tags": list(preserve_whitespace_tags),
                 "drop_empty": bool(drop_empty),
+                "preserve_semantic_tags": bool(preserve_semantic_tags),
+                "preserve_custom_tags": list(preserve_custom_tags or []),
             },
         )
 
         browser.close()
         return cleaned
-
 
 # # ---------- Simple web "tool" the Researcher can call to return the text content of page ----------
 def fetch_url_summary(url: str) -> str:
