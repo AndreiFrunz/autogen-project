@@ -17,7 +17,7 @@ def build_model_client():
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
         )
-    return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
 
 
 # ---------- Define the agents ----------
@@ -69,6 +69,8 @@ def build_team():
             You are the Researcher.
             Your job is to generate clear and structured test cases for a given website and scenario.
             You will receive cleaned HTML and a scenario.
+            Indentify the elements and its characteristics (html tag, ids, class)
+            Sometimes scenarios can be ambigous so search in the code about the specific elements like text content of the elements or about the utility of that element which is involved in testing.
             Analyze both and produce test cases in JSON format. Each test case must include:
             - Test Name
             - Preconditions
@@ -104,6 +106,9 @@ def build_team():
             * identifiers → used to locate elements
             * expectedResult → assertions
             Output only JavaScript code, ready to be placed in a single file.
+            Output will be the Javascript code ready to be put in one file, so do not add duplicated imports, variables or constants. 
+            Generate a Javascript Playwright code clean, to be ready for testing. Without duplicated code/imports or variable/constants.
+            Wrap code in a code block text (/```javascript ), which can be extracted with regex formula /```javascript([\s\S]*?)```/g.exec(inputText) where input text is the whole final text 
             When done, HAND OFF to 'manager'.
         """).strip()
     )
