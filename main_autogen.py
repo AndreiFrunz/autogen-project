@@ -2,8 +2,8 @@ import os, textwrap
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import Swarm
 from autogen_agentchat.conditions import TextMentionTermination
-from autogen_agentchat.ui import Console
-from helper import clean_html_with_playwright
+# from utils.helper import clean_html_with_playwright
+from utils.html_split_tool import get_html_and_chunks
 
 # Use ONE of these model clients ↓ depending on your setup.
 from autogen_ext.models.openai import OpenAIChatCompletionClient, AzureOpenAIChatCompletionClient
@@ -13,10 +13,10 @@ def build_model_client():
     if os.getenv("AZURE_OPENAI_ENDPOINT"):
         return AzureOpenAIChatCompletionClient(
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1"),
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
-            model="gpt-4.1"
+            model="gpt-4o"
         )
     return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
 
@@ -46,15 +46,14 @@ def build_team():
         name="html_locator",
         model_client=model_client,
         handoffs=["researcher"],
-        tools=[clean_html_with_playwright],
+        tools=[get_html_and_chunks],
         description=textwrap.dedent("""
-            An AI agent specialized in extracting and cleaning HTML content from web pages.
-            Uses Playwright to retrieve and sanitize HTML for further analysis.
+            Extracts and cleans HTML, then chunks it for downstream analysis.
         """).strip(),
         system_message=textwrap.dedent("""
             You are the HTML Locator.
-            Your job is to extract and clean the HTML content from a given URL using the tool clean_html_with_playwright(url).
-            Once the HTML is retrieved, HAND OFF to 'researcher' along with the original scenario.
+            Your job is to extract all data about HTML content from a given URL using the tool get_html_and_chunks(url).
+            Once the HTML data is retrieved, HAND OFF to 'researcher' along with the original scenario.
             Do not analyze or interpret the HTML. Just retrieve and pass it on.
         """).strip()
     )
@@ -72,9 +71,13 @@ def build_team():
             You generate clear, executable test cases from:
             1) Cleaned HTML of a single page, and
             2) A plain-language testing scenario.
-            Inputs
-            - html: string (the full, cleaned HTML for the page)
-            - scenario: string (what to test, in natural language)
+            3) dom_chunks: array<{text, headers[], scope_hint}>
+            4) selector_index: array<{target_hint, headers[], by_priority[]}>
+            Inputs: {
+                "url": url,
+                "html": cleaned_html,
+                "dom_chunks": dom_chunks,
+            },
             Non-Hallucination Rule
             Use ONLY what is present in the provided HTML. If an element required by the scenario is not present, mark it as a precondition and select the closest observable alternative. Do not invent attributes or nodes.
             Element Identification Strategy (in priority order)
@@ -142,7 +145,8 @@ def build_team():
            After page.goto(), include a resilient 'accept cookies' step if a banner appears. 
            If you need a short pause, use 'await page.waitForTimeout(500)' (there is no 'timeout(500)'). 
            Ensure all elements are waited for before interacting with them. 
-           Ensure all elements are visible, take care elements are NOT hidden (type="hidden", hidden attribute, aria-hidden="true", or display:none, class="hidden"). 
+           Ensure all elements are visible, take care elements are NOT hidden (type="hidden", hidden attribute, aria-hidden="true", or display:none, class="hidden").
+           Do not use getByRole or locator.role playwright method to select the elemets.
            Follow these rules: 
             - Use only the provided test cases. 
             - Do not invent or assume functionality. 

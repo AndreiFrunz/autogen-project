@@ -1,4 +1,5 @@
 from typing import Iterable, Optional
+from bs4 import BeautifulSoup
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -180,15 +181,15 @@ def fetch_url_summary(url: str) -> str:
         )
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        # html = page.content()
-        title = page.title()
-        text = page.inner_text("body")
+        html = page.content()
+        # title = page.title()
+        # text = page.inner_text("body")
         browser.close()
     # Extract html here
-    # soup = BeautifulSoup(html, "html.parser")
-    snippet = " ".join(text.split())
+    soup = BeautifulSoup(html, "html.parser")
+    # snippet = " ".join(text.split())
     # print(">>>>> snippet <<<<<")
     # print(soup)
     # print(">>>>> snippet <<<<<")
-    return f"TITLE: {title}\nURL: {url}\nSNIPPET: {snippet}"
-    # return f"Url html's: {soup}"
+    # return f"TITLE: {title}\nURL: {url}\nSNIPPET: {snippet}"
+    return f"{soup}"
