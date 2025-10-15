@@ -1,11 +1,4 @@
 from typing import Iterable, Optional
-
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-
-from typing import Optional, Iterable
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-
-from typing import Optional, Iterable
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 def clean_html_with_playwright(
@@ -19,22 +12,12 @@ def clean_html_with_playwright(
     drop_empty: bool = True,
     headless: bool = False,
     timeout_ms: int = 30000,
+    wait_for_dynamic_ms: int = 400,
 ) -> str:
     """
     Produce a compact HTML snapshot that keeps structure, class/id/role/data/aria, and text.
-
-    Parameters:
-      url or html: one must be provided.
-      allowed_attrs: attributes to preserve (default: class, id, role).
-      preserve_whitespace_tags: tags whose text whitespace is preserved.
-      preserve_semantic_tags: if True, semantic tags are preserved even if empty.
-      preserve_custom_tags: additional tag names to preserve even if empty.
-      drop_empty: remove elements with no content or useful attributes.
-      headless: run browser in headless mode.
-      timeout_ms: timeout for page load.
-
-    Returns:
-      Cleaned HTML string.
+    Automatically waits for dynamic content (like tab switches or JS-rendered sections)
+    to stabilize before cleaning.
     """
     if (url is None) == (html is None):
         raise ValueError("Provide exactly one of `url` or `html`.")
@@ -149,6 +132,29 @@ def clean_html_with_playwright(
         except PlaywrightTimeoutError:
             page.wait_for_load_state("domcontentloaded", timeout=5000)
 
+        # --- NEW: Observe for dynamic DOM changes (SPAs, tab switches, lazy loads) ---
+        page.evaluate("""
+            window.__domChanged = false;
+            const observer = new MutationObserver((mutations) => {
+                if (mutations.length > 0) window.__domChanged = true;
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        """)
+
+        # Wait a bit to allow any dynamic updates
+        stable_cycles = 0
+        while stable_cycles < 3:
+            dom_changed = page.evaluate("window.__domChanged")
+            if dom_changed:
+                page.evaluate("window.__domChanged = false;")
+                stable_cycles = 0
+            else:
+                stable_cycles += 1
+            page.wait_for_timeout(500)
+
+        # Extra wait window for dynamic content
+        page.wait_for_timeout(wait_for_dynamic_ms)
+
         cleaned = page.evaluate(
             js_cleaner,
             {
@@ -163,15 +169,16 @@ def clean_html_with_playwright(
         browser.close()
         return cleaned
 
-# # ---------- Simple web "tool" the Researcher can call to return the text content of page ----------
+
+# ---------- Simple web "tool" the Researcher can call to return the text content of a page ----------
 def fetch_url_summary(url: str) -> str:
     """Fetch a page (JS-rendered if needed) and summarize it."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context(
             user_agent=(
-                "Mozilla/5.0 (Macintosh; ARM Mac OS X 14_5)"
-                "AppleWebKit/537.36 (KHTML, like Gecko)"
+                "Mozilla/5.0 (Macintosh; ARM Mac OS X 14_5) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/128.0.6613.119 Safari/537.36"
             ),
             locale="ro-RO",
@@ -180,15 +187,9 @@ def fetch_url_summary(url: str) -> str:
         )
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        # html = page.content()
         title = page.title()
         text = page.inner_text("body")
         browser.close()
-    # Extract html here
-    # soup = BeautifulSoup(html, "html.parser")
+
     snippet = " ".join(text.split())
-    # print(">>>>> snippet <<<<<")
-    # print(soup)
-    # print(">>>>> snippet <<<<<")
     return f"TITLE: {title}\nURL: {url}\nSNIPPET: {snippet}"
-    # return f"Url html's: {soup}"

@@ -1,4 +1,4 @@
-import os, textwrap
+import os, textwrap, pathlib
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import Swarm
 from autogen_agentchat.conditions import TextMentionTermination
@@ -10,16 +10,19 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient, AzureOpenAICha
 
 # ---------- Choose your model client ----------
 def build_model_client():
-    if os.getenv("AZURE_OPENAI_ENDPOINT"):
+  #if os.getenv("AZURE_OPENAI_ENDPOINT"):
         return AzureOpenAIChatCompletionClient(
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
             azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             model="gpt-4.1"
-        )
-    return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
+      )
+   # return OpenAIChatCompletionClient(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
 
+kb_path = pathlib.Path(__file__).parent / "knowledge_base" / "bt_calculator.md"
+with open(kb_path, encoding="utf-8") as f:
+    kb_context = f.read()
 
 # ---------- Define the agents ----------
 def build_team():
@@ -43,20 +46,31 @@ def build_team():
     )
 
     html_locator = AssistantAgent(
-        name="html_locator",
-        model_client=model_client,
-        handoffs=["researcher"],
-        tools=[clean_html_with_playwright],
-        description=textwrap.dedent("""
-            An AI agent specialized in extracting and cleaning HTML content from web pages.
-            Uses Playwright to retrieve and sanitize HTML for further analysis.
-        """).strip(),
-        system_message=textwrap.dedent("""
-            You are the HTML Locator.
-            Your job is to extract and clean the HTML content from a given URL using the tool clean_html_with_playwright(url).
-            Once the HTML is retrieved, HAND OFF to 'researcher' along with the original scenario.
-            Do not analyze or interpret the HTML. Just retrieve and pass it on.
-        """).strip()
+    name="html_locator",
+    model_client=model_client,
+    handoffs=["researcher"],
+    tools=[clean_html_with_playwright],
+    description=textwrap.dedent("""
+        An AI agent specialized in extracting and cleaning HTML content from web pages.
+        It uses Playwright to open a page, detect dynamic updates (such as tab switches, lazy loading, or JS-rendered sections),
+        and waits until the DOM is stable before returning the final HTML snapshot.
+    """).strip(),
+    system_message=textwrap.dedent("""
+        You are the HTML Locator.
+        Your job is to retrieve and clean the HTML content of a given URL using the tool `clean_html_with_playwright(url)`.
+        
+        This tool automatically:
+        - Opens the URL using Playwright.
+        - Waits for the page to finish loading (`networkidle`).
+        - Observes the DOM for several seconds to capture any dynamic content updates, such as tab switches or lazy loads.
+        - Returns the final, stable HTML snapshot.
+
+        You do NOT need to click anything manually or instruct Playwright to switch tabs.
+        The tool already waits for any client-side DOM updates before returning the HTML.
+
+        When done, HAND OFF the cleaned HTML and the original scenario to 'researcher'.
+        Do not analyze the HTML yourself.
+    """).strip()
     )
 
     researcher = AssistantAgent(
@@ -68,6 +82,10 @@ def build_team():
         """).strip(),
         system_message=textwrap.dedent("""
            Role: Researcher — DOM-aware Test Case Synthesizer
+             You have access to this background knowledge about the target site:
+            ---
+           {kb_context}
+            ---
             Objective
             You generate clear, executable test cases from:
             1) Cleaned HTML of a single page, and
@@ -76,8 +94,11 @@ def build_team():
             - html: string (the full, cleaned HTML for the page)
             - scenario: string (what to test, in natural language)
             Non-Hallucination Rule
+            For each AC (Acceptance Criteria) in the prompt write at least one test.
+            Do not use getByRole function from playwright.
+            If you use input.inputValue() on a numeric input box, the value usually contains '.' as a separator.
             Use ONLY what is present in the provided HTML. If an element required by the scenario is not present, mark it as a precondition and select the closest observable alternative. Do not invent attributes or nodes.
-            Element Identification Strategy (in priority order)
+            Element Identification Strategy (in priority order).
             Prefer selectors that are unique, stable, and semantic:
             1) id (reject ids that look auto-generated: long UUIDs, timestamps, hashes)
             2) class
@@ -137,8 +158,14 @@ def build_team():
         """).strip(),
         system_message=textwrap.dedent("""
            You are the Test Writer. 
+            Knowledge Base:
+             ---
+            {kb_context}
+             ---
+           Follow all KB guidance for locating elements (tabs, buttons, results).
            You will receive structured test cases in JSON format and the HTML structure. 
            Convert each test case into a Playwright test script using @playwright/test syntax. 
+           Use @playwright/test syntax and ensure each step is stable and visible.
            After page.goto(), include a resilient 'accept cookies' step if a banner appears. 
            If you need a short pause, use 'await page.waitForTimeout(500)' (there is no 'timeout(500)'). 
            Ensure all elements are waited for before interacting with them. 
