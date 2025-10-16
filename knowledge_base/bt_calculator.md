@@ -1,188 +1,381 @@
-# Knowledge Base for BT Agents
+# BT Loan Calculator – Playwright KB (Class/Attribute/XPath selectors only)
 
-> 🔗 Include addendum: **bt-playwright-agent-addendum.md**  
-> Precedence: **Addendum overrides base** where instructions conflict.
+**Primary URL:** `https://www.bancatransilvania.ro/credite/calculatorul-de-rate`  
+**Mirror (EN):** `https://en.bancatransilvania.ro/credits/calculatorul-de-rate` (for label parity only)
 
----
+**Ground truths for assertions**
 
-## 1) Selection & Scoping Rules
+- Two products (tabs): **Nevoi Personale** & **Imobiliar-Ipotecar**; switching updates labels/controls.
+- **Personal (Nevoi Personale)**: amount range **5.000–250.000 LEI**; tenor **1–5 ani**; interest **Fixă / Variabilă**.
+- **Mortgage (Imobiliar-Ipotecar)**: label **„Cât costă locuința?”**, price range **7.000–1.200.000 LEI**, avans **15–50%**, presets **1/10/20/30** + **Alt interval**, interest **Fixă în primii 2 ani… / Variabilă**.
+- Primary output tile: **„RATA LUNARĂ {amount} {currency}”**.
 
-- **Scope before you query.** Find the smallest stable container (region, dialog, form), then query _within_ it.  
-  Prefer locators in this order: `getByRole` → `getByLabel` → `getByPlaceholder` → `getByText`.  
-  Treat `data-testid` as an explicit contract and last resort.
-- **User-first locators.** Favor **role + accessible name**. Example:  
-  `page.getByRole('button', { name: /apply|aplică/i })`.
-- **Strict mode implications.** Actions/assertions on a locator that matches >1 element throw.  
-  Resolve by scoping, adding role/name, or using `.first()`. If uniqueness matters, assert `await expect(locator).toHaveCount(1)`.
+> This site renders parts of the simulator dynamically; class names can be **semantic** or **hashed**. The selector strategy below prefers class/attribute hooks and provides “fallback packs” (text, XPath) while still avoiding role-based APIs.
 
 ---
 
-## 2) Active State & Accessibility
+## Selector strategy (class/attr first, then text/XPath)
 
-- Prefer **ARIA** over styling to determine state. For tabs, use `role="tab"` + `aria-selected="true"`.
-- Fall back to modifiers only if ARIA is absent: class includes `active|selected|current`, or attributes `data-state="active"`, `data-active="true"`, `aria-current="true"`.
-- Always **click** by accessible element (e.g., the tab/button), not its decorative wrapper.
+> Use the **first matching pack** that works in CI. Keep packs in code so the agent can fall back automatically.
+
+### A) Root containers (choose one)
+
+- `css=[class*="calculator"], css=[class*="simulator"], css=section[class*="credit"]`
+- Fallback text anchor: `text=/Simulator de credit|Loan Simulator/i` (used only to scope a nearby container; avoid it for clicks)
+
+### B) Product tabs (no getByRole)
+
+- **Personal tab**:
+  - Primary: `css=.tabs .tab--personal, css=[class*="tabs"] [class*="personal"]`
+  - Fallback (text engine): `text=/Nevoi\\s+Personale/i`
+  - XPath: `xpath=//button[contains(., "Nevoi") and contains(., "Personale")]`
+- **Mortgage tab**:
+  - Primary: `css=.tabs .tab--mortgage, css=[class*="tabs"] [class*="imobiliar"], css=[class*="tabs"] [class*="ipotec"]`
+  - Fallback (text): `text=/Imobiliar|Ipotecar/i`
+  - XPath: `xpath=//button[normalize-space()="Imobiliar-Ipotecar" or contains(., "Ipotecar")]`
+
+### C) Core inputs
+
+- **Personal amount** (textbox):
+  - Primary: `css=input[name*="amount"], input[name*="suma"], input[class*="amount"], input[class*="suma"]`
+  - Secondary: `css=[placeholder*="lei"], [inputmode="numeric"]`
+  - XPath: `xpath=//label[contains(., "împrumuți")]/following::input[1]`
+- **Mortgage price** (textbox):
+  - Primary: `css=input[name*="pret"], input[name*="price"], input[class*="price"], input[class*="pret"]`
+  - XPath: `xpath=//label[contains(translate(., "ÂĂÎȘȚáâăîșț", "AAISTaaist"), "cat costa locuinta")]/following::input[1]`
+- **Sliders** (for amount/price/avans):
+  - Generic: `css=[class*="slider"] input[type="range"], input[type="range"]`
+- **Currency toggle**:
+  - LEI: `css=[class*="currency"] [class*="lei"], css=button[data-currency="LEI"], css=[data-currency="RON"]`
+  - EURO: `css=[class*="currency"] [class*="eur"], css=button[data-currency="EUR"]`
+- **Tenor buttons**:
+  - Personal 1–5y: `css=[class*="tenor"] button` (filter by text `^([1-5])$`)
+  - Mortgage presets: `css=[class*="tenor"] button` (filter by text `^(1|10|20|30)$`) + **Alt interval**: `text=/Alt interval/i` then `css=input[name*="ani"], input[class*="ani"]`
+- **Interest type**:
+  - Personal: `css=[class*="interest"] [class*="fix"], [data-interest*="fixed"]`; `css=[class*="interest"] [class*="variabil"], [data-interest*="variable"]`
+  - Mortgage intro-fix: `text=/Fix(ă|a)\\s+în primii\\s+2\\s+ani/i`; generic attr: `css=[data-interest*="intro"]`
+- **Salary at BT / Insurance / Schedule** (binary/radio):
+  - `css=[class*="salary"] [class*="da"], [class*="salary"] [class*="nu"]`
+  - `css=[class*="asigur"], [data-toggle*="insurance"] [data-value]`
+  - `css=[class*="schedule"] [class*="egale"], [class*="schedule"] [class*="descresc"]`
+
+### D) Results, actions, messages
+
+- **Monthly rate tile**:
+  - Container: `css=[class*="rata"], [class*="result"], [class*="monthly"]`
+  - Amount node under tile: `css=[class*="rata"] [class*="amount"], [class*="result"] [class*="value"]`
+  - Fallback text: `text=/^Rata\\s+lunara|Rata\\s+lunară/i` (for scoping only)
+- **Settings entry / apply**:
+  - Open: `css=button[class*="schimba"], a[class*="schimba"], [data-action="open-settings"]`
+  - Apply: `css=button[class*="vezi"], [data-action="apply-settings"]`
+- **Validation hints (min/max)**:
+  - `css=[class*="helper"], [class*="error"], [class*="hint"]`
+  - Text patterns:
+    - Min: `/Suma\\s+minim[ăa]\\s+pe care o poți împrumuta este/i`
+    - Max: `/Suma\\s+maxim[ăa]\\s+pe care o poți împrumuta este/i`
+- **Error placeholder** (on failure):
+  - `css=[class*="error"], [data-state="error"]`
+  - Text: `/Calcul indisponibil momentan/i`
 
 ---
 
-## 3) Assertions & Auto‑waiting
+## Ranges & rules (assertions)
 
-- Use Playwright’s built‑in `expect` — it **auto‑waits**. Avoid arbitrary `waitForTimeout`.  
-  Examples: `toBeVisible`, `toHaveText`, `toHaveAttribute`, `toHaveURL`, `toHaveCount`.
-- Prefer **stateful assertions** over reading values into variables and asserting with bare `expect` — this leverages retries and reduces flake.
-- Keep assertions **close to interactions** so waiting windows are short and intent is clear.
-
----
-
-## 4) Flake Killers
-
-- Avoid **global text searches**; always **scope + role** to prevent matching headers/footers/hidden nodes.
-- Keep tests small and focused; avoid cross‑test dependencies. Reset state per test.
-- Handle **consent/cookie banners** with a **scoped** helper that uses `.first()` to avoid strict‑mode violations.
-- Prefer `page.waitForLoadState('domcontentloaded')` or assertion auto‑waits over sleeps.
+- **Personal amount:** **min 5.000 LEI**, **max 250.000 LEI**; tenor **1–5 ani**; interest **Fixă/Variabilă**.
+- **Mortgage price:** **min 7.000 LEI**, **max 1.200.000 LEI**; **Avans 15–50%** (min/max lei hints update with price); tenor presets **1/10/20/30** + **Alt interval** (custom years).
+- **Currency:** **LEI / EURO** toggle updates symbol & recomputes.
+- **Primary output:** **„RATA LUNARĂ”** shows recalculated amount after a valid change.
 
 ---
 
-## 5) Patterns & Structure
+## Timing budgets (for perf checks)
 
-- Adopt **Page Object Model** once suites grow. Keep:
-  - **Interactions** in page objects, **assertions** in specs.
-  - Page objects minimal (no test logic, no assertions except tiny sanity checks).
-- Use **fixtures** for setup/teardown and shared context (auth session, permissions, device).
+- Recalc after **direct control** (typing/slider): **≤ 500 ms** to update rate tile.
+- Recalc after **settings apply**: **≤ 1,000 ms** after clicking **„Vezi noul calcul”**.
+- On failure: show **error placeholder** and **hide previous rate** (no stale values).
 
----
-
-## 6) Debuggability
-
-- Use **UI Mode** / `--debug` to step through.
-- Enable **trace** and **screenshots/videos on failure** in CI. Keep traces “on failure” to save space.
-- Add targeted logging via `test.info().annotations.push(...)` for dynamic values (e.g., discovered min/max).
+_(Budgets are QA requirements; not guaranteed by site copy.)_
 
 ---
 
-## 7) Known Pitfalls (with fixes)
+## Input & formatting rules (UI expectations)
 
-- **Strict mode violation** (multiple matches): scope to a container, add role+name, or use `.first()`; assert uniqueness when required.
-- **Brittle CSS**: don’t drive interactions by CSS class or structure; use roles/labels. CSS is fine for _scoping only_.
-- **Timing races**: use auto‑waiting assertions; avoid `waitForTimeout`.
-- **Hidden/overlayed elements**: assert `toBeVisible()` or `toBeEnabled()` before clicking; consider `force: true` only as a last resort with a comment.
+- Numeric fields accept **digits only** while typing; apply **thousands separators** on blur (`250.000`).
+- **Slider ↔ textbox** stay synchronized.
+- **Tab switch** should **retain per-product state** (returning to a tab restores its last values).
 
 ---
 
-## 8) Reusable Snippets
+---
 
-### 8.1 Scoped tab selection with ARIA‑first checks
+## Cookie Banner Handling (avoid strict mode violations)
+
+The site may render **two overlapping cookie containers** at once (e.g., `.gdprcookie-wrapper` and `.gdprcookie`). Using `page.locator()` on a **comma selector** can trigger **Playwright strict mode** errors when multiple nodes match. **Do not** rely on `locator(...).isVisible()` for union selectors.
+
+### Strategy
+
+- Use **element handles** (`page.$`, `page.$$`) to pick **the first visible** banner container.
+- Prefer **scoped search** into the picked container to find the **accept button**.
+- Provide multiple **button selector fallbacks**: `.btn-ac`, `[data-accept="cookies"]`, `button:has-text("Accept")`, `button:has-text("De acord")`, etc.
+- If nothing is visible within a short window, **return silently**.
+
+### Robust helper (no `getByRole`, limited use of `locator`)
 
 ```ts
-// Scope to smallest stable container
-const region = page
-  .getByRole("region", {
-    name: /calculator|simulator|choose the loan|alege creditul/i,
-  })
-  .first();
-await expect(region).toBeVisible();
+export async function acceptCookiesIfPresent(
+  page: import("@playwright/test").Page,
+  timeoutMs = 2500
+) {
+  const t0 = Date.now();
+  const containerSelectors = [
+    ".gdprcookie-wrapper",
+    ".gdprcookie",
+    '[class*="cookie"]',
+  ];
+  const acceptSelectors = [
+    ".btn-ac",
+    '[data-accept="cookies"]',
+    'button:has-text("Accept")',
+    'button:has-text("ACCEPT")',
+    'button:has-text("De acord")',
+    'button:has-text("Sunt de acord")',
+  ];
 
-// Tablist or fallback container
-const tablist = region.getByRole("tablist").first().or(region);
+  // poll for a visible container until timeout
+  let container = null;
+  while (!container && Date.now() - t0 < timeoutMs) {
+    for (const sel of containerSelectors) {
+      const candidates = await page.$$(sel);
+      for (const c of candidates) {
+        if (await c.isVisible()) {
+          container = c;
+          break;
+        }
+      }
+      if (container) break;
+    }
+    if (!container) await page.waitForTimeout(100);
+  }
+  if (!container) return; // nothing to do
 
-// Tabs by role + name (fallback to buttons)
-const personal = tablist
-  .getByRole("tab", { name: /personal|nevoi personale/i })
-  .first()
-  .or(
-    tablist.getByRole("button", { name: /personal|nevoi personale/i }).first()
-  );
-const mortgage = tablist
-  .getByRole("tab", { name: /mortgage|imobiliar|ipotecar/i })
-  .first()
-  .or(
-    tablist
-      .getByRole("button", { name: /mortgage|imobiliar|ipotecar/i })
-      .first()
-  );
+  // find and click the first visible accept button inside container
+  for (const btnSel in acceptSelectors) {
+    /* placeholder to keep TS happy */
+  }
+  for (const btnSel of acceptSelectors) {
+    const btn = await container.$(btnSel);
+    if (btn && (await btn.isVisible())) {
+      await btn.click();
+      await page.waitForTimeout(200);
+      return;
+    }
+  }
 
-await expect(personal).toBeVisible();
-await expect(mortgage).toBeVisible();
-
-await mortgage.click();
-
-// ARIA‑first active state
-if ((await mortgage.getAttribute("role")) === "tab") {
-  await expect(mortgage).toHaveAttribute("aria-selected", "true");
-  await expect(personal).not.toHaveAttribute("aria-selected", "true");
-} else {
-  await expect(mortgage).toHaveClass(/active|selected|current/i);
-  await expect(personal).not.toHaveClass(/active|selected|current/i);
-}
-```
-
-### 8.2 Strict‑mode–safe cookie banner helper
-
-```ts
-export async function acceptCookies(page: Page) {
-  const banners = page.locator(".gdprcookie-wrapper, .gdprcookie");
-  if ((await banners.count()) === 0) return;
-
-  const banner = banners.first();
-  if (!(await banner.isVisible().catch(() => false))) return;
-
-  const accept = banner
-    .getByRole("button", {
-      name: /accept|accept toate|de acord|sunt de acord/i,
-    })
-    .first();
-  if (await accept.isVisible().catch(() => false)) {
-    await accept.click();
-    await page.waitForLoadState("domcontentloaded");
+  // fallback: try clicking any visible button inside the container
+  const anyButtons = await container.$$("button");
+  for (const b of anyButtons) {
+    const txt = (await b.textContent())?.trim().toLowerCase() || "";
+    if (
+      (await b.isVisible()) &&
+      /accept|de acord|sunt de acord|ok|înțeleg|inteleg/.test(txt)
+    ) {
+      await b.click();
+      await page.waitForTimeout(200);
+      return;
+    }
   }
 }
 ```
 
-### 8.3 Uniqueness when required
+### Why this avoids strict-mode errors
+
+- `page.$` / `page.$$` **do not enforce strictness**; they simply return the first or all matches.
+- We **scope** the button search **within the chosen container**, guaranteeing a single interaction target.
+- We support **multiple UI variants** (RO/EN copy, data attributes, class names).
+
+## Canonical test blueprints (no role/locator APIs)
+
+> All steps use `page.click('css=...')`, `page.fill('css=...')`, `page.waitForSelector('css=...')`, **ElementHandle**s, and **XPath/text engines**—never `getByRole`, never `page.locator(...)`.
+
+### 1) Tabs render & switch + state retention
+
+- **Steps**
+  1. `await page.waitForSelector('css=[class*="tabs"]');`
+  2. Click mortgage tab: `await page.click('text=/Imobiliar|Ipotecar/i');`
+  3. Assert mortgage core label nearby: `await page.waitForSelector('text=/C(â|a)t cost[ăa] locuin[tț]a\\?/i');`
+  4. Fill a price: `await page.fill('css=input[name*="pret"], input[name*="price"]', '120000');`
+  5. Click personal tab: `await page.click('text=/Nevoi\\s+Personale/i');`
+  6. Fill personal amount: `await page.fill('css=input[name*="amount"], input[name*="suma"]', '50000');`
+  7. Switch back to mortgage: `await page.click('text=/Imobiliar|Ipotecar/i');`
+- **Assertions**
+  - Price field retains previous number (read via element handle `.inputValue()`).
+  - Rate tile changes after each tab switch: compare previous vs new text from `await (await page.waitForSelector('css=[class*="rata"]')).textContent()` within 1s.
+
+### 2) Personal amount validation & slider sync
+
+- **Steps**
+  - Below min: fill `4999` → expect min helper: `await page.waitForSelector('text=/Suma minim[ăa]/i');`
+  - Above max: fill `250001` → expect max helper: `await page.waitForSelector('text=/Suma maxim[ăa]/i');`
+  - Boundary values `5000` and `250000` accepted.
+  - Drag range slider to ends: `await page.hover('input[type="range"]'); await page.mouse.down(); ...`
+- **Assertions**
+  - Thousand separators after blur (read `textContent()` close to the input or formatted mirror field).
+  - Rate tile updates ≤ 500 ms on valid change.
+
+### 3) Mortgage price + avans dynamics
+
+- **Steps**
+  - Switch to mortgage tab → set price to `7000` then `1200000`.
+  - Adjust avans slider to **15%** then **50%**: use drag or keyboard (see helper).
+- **Assertions**
+  - Hints appear: `text=/Avansul minim este/i` and `text=/Avansul maxim este/i` with lei amounts.
+  - Rate tile changes after price/percent edits (≤ 500 ms).
+
+### 4) Tenor presets & “Alt interval” flow (mortgage)
+
+- **Steps**
+  - Click `text=/^(1|10|20|30)$/` buttons (e.g., `page.click('text=/^10$/')`).
+  - Click `text=/Alt interval/i` → fill `css=input[name*="ani"], input[class*="ani"]` with e.g. `17`.
+  - Click **apply**: `await page.click('css=button[class*="vezi"], [data-action="apply-settings"]');`
+- **Assertions**
+  - After apply, summary view shows updated rate within 1s.
+
+### 5) Interest & currency impact
+
+- **Steps**
+  - **Personal**: record rate text; click fixed/variable via class hooks:  
+    `await page.click('css=[class*="interest"] [class*="variabil"]');`  
+    `await page.click('css=[class*="interest"] [class*="fix"]');`
+  - **Currency**: `await page.click('css=[class*="currency"] [class*="eur"], [data-currency="EUR"]');`
+- **Assertions**
+  - Rate text changes after each toggle; currency symbol updates to **EUR** (then back to **LEI**).
+
+### 6) Settings deferred apply
+
+- **Steps**
+  - Open settings: `await page.click('css=button[class*="schimba"], a[class*="schimba"]');`
+  - Change multiple params (interest, tenor, schedule) inside config panel.
+  - Close via **Închide** (or back): `await page.click('text=/Închide|Înapoi|Close/i');`
+  - Assert summary **unchanged** (compare cached rate).
+  - Reopen, change again, click **apply**: `await page.click('css=button[class*="vezi"]');`
+- **Assertions**
+  - Only after **apply** does the rate change (≤ 1,000 ms).
+
+### 7) Failure placeholder (mocked)
+
+- **Steps**
+  - `await page.route('**/calc*', route => route.abort());` (or return 500)
+  - Trigger recalculation (change amount).
+- **Assertions**
+  - Placeholder `text=/Calcul indisponibil momentan/i` appears; previous rate text is **not** visible.
+
+---
+
+## Helper snippets (class/attr/XPath only)
 
 ```ts
-const primaryCta = region.getByRole("button", { name: /apply|aplică/i });
-await expect(primaryCta).toHaveCount(1);
-await primaryCta.first().click();
-```
+// wait and read text from a CSS target (no Locator API)
+async function getText(page, selector) {
+  const el = await page.waitForSelector(selector, { state: "visible" });
+  return (await el.textContent())?.trim() ?? "";
+}
 
-### 8.4 Numeric extraction (scoped results)
+// assert rate changes without getByRole/locator
+const rateSel = 'css=[class*="rata"], [class*="result"], [class*="monthly"]';
+const before = await getText(page, rateSel);
+// ... make a change ...
+await page.waitForFunction(
+  (sel, prev) => {
+    const el = document.querySelector(sel);
+    return el && el.textContent && el.textContent.trim() !== prev;
+  },
+  rateSel,
+  before,
+  { timeout: 1000 }
+);
 
-```ts
-const results = region.locator('[class*="result"], [data-result]').first();
-const monthly = results
-  .getByText(/monthly (installment|rate)|rata lunară/i)
-  .first();
-const monthValue = await monthly
-  .locator("..")
-  .locator("text=/[0-9][0-9 .,:-]*/")
-  .first()
-  .textContent();
-```
+// set slider by keyboard (safer than pixel coords)
+async function sliderStepRight(page, sliderSel, steps = 10) {
+  const s = await page.waitForSelector(sliderSel);
+  await s.focus();
+  for (let i = 0; i < steps; i++) await page.keyboard.press("ArrowRight");
+}
 
-### 8.5 Guard for multi‑match before action
-
-```ts
-const candidates = region.getByRole("button", { name: /continue|următor/i });
-await expect(candidates).toHaveCount(1);
-await candidates.first().click();
+// money pattern for RO format
+const moneyRe = /^\\s*\\d{1,3}(\\.\\d{3})*(,\\d{2})?\\s*(LEI|EUR)\\s*$/i;
 ```
 
 ---
 
-## 9) Suggested Test Structure
+## Test data & strings (for text/XPath selectors)
 
-- **Arrange**: navigate + accept cookies + scope container.
-- **Act**: minimal interactions to reach the state.
-- **Assert**: stateful expectations (prefer ARIA & roles).
-- **Clean**: optional (e.g., close modal) to keep state tidy for parallel runs.
+- Tabs: **„NEVOI PERSONALE”**, **„IMOBILIAR-IPOTECAR”**.
+- Core labels: **„Cât vrei să împrumuți?”** (personal), **„Cât costă locuința?”** (mortgage).
+- Ranges: **5.000–250.000 LEI** (personal), **7.000–1.200.000 LEI** (mortgage).
+- Avans hints: **„Avansul minim este {X}”**, **„Avansul maxim este {Y}”**, **15%–50%**.
+- Tenor presets: **1 / 10 / 20 / 30 / Alt interval**; personal **1–5**.
+- Actions: **„Schimbă calculul”**, **„Vezi noul calcul”**.
+- Result title: **„Rata lunară / RATA LUNARĂ”** visible near amount.
 
 ---
 
-## 10) Optional Conventions for Agents
+## Flakiness guards (still avoiding Locator APIs)
 
-- Always provide a short **selector rationale** in comments near non‑trivial locators.
-- When ranges/labels are dynamic, **discover** them at runtime (read visible hints) and log via `test.info().annotations` for traces.
-- If multiple matches remain after scoping, interact with `.first()`; if uniqueness is a requirement, assert `toHaveCount(1)`.
+- Prefer **attribute selectors** (`[name*=]`, `[data-*]`, `[class*=]`) over exact full class names (resilient to BEM/hashing).
+- When using the **text engine** (`text=/.../i`), scope with a nearby container class, e.g.  
+  `css=[class*="simulator"] >> text=/Rata lunară/i` (the `>>` chain still uses direct selector strings).
+- For sliders, **keyboard arrows** are steadier than pixel drags.
+- Avoid `expect(locator)`—instead read text via element handle and compare strings.
+
+---
+
+## Disambiguating Similar Inputs (strict-mode safe)
+
+The simulator renders multiple inputs sharing the class `.bt-simulator-de-credit-range-slider-field-input-display`
+(e.g., **amount/price** and **avans**). Using that class alone causes **strict mode** violations.
+
+**Use these field-specific attributes:**
+
+- **Personal amount:** `input[data-field-name="suma"]` (fallback: `input[name="suma"]`)
+- **Mortgage price:** `input[data-field-name="pret"]` (fallback: `input[name="pret"]`)
+- **Down payment (avans):** `input[data-field-name="avans"]`
+
+**Scoped XPath fallback by label:**
+
+- Personal: `xpath=//label[@id="sumaSim"]/following::input[@data-field-name="suma"][1]`
+- Mortgage: `xpath=//label[contains(., "Cât costă locuința")]/following::input[@data-field-name="pret"][1]`
+
+---
+
+## Active Tab Detection (no reliance on class "active")
+
+Some deployments **do not** add an `active` CSS class. Use attribute-based checks:
+
+1. Prefer `[aria-selected="true"]` or `[data-selected="true"]` on the tab element.
+2. If absent, verify **content switch** by asserting the **core label** appropriate for each tab:
+   - Personal: label with id `#sumaSim` contains “împrumuți”
+   - Mortgage: “Cât costă locuința?” visible near price input
+
+Helper:
+
+```ts
+async function isTabActiveHandle(
+  tabHandle: import("@playwright/test").Locator
+) {
+  const aria = await tabHandle.getAttribute("aria-selected");
+  const dataSel = await tabHandle.getAttribute("data-selected");
+  if (aria === "true" || dataSel === "true") return true;
+  const cls = (await tabHandle.getAttribute("class")) || "";
+  if (/(--active|active|selected)/i.test(cls)) return true;
+  return false;
+}
+```
+
+---
+
+## AC1.4 Clarification (Result refresh on tab switch)
+
+The **“Vezi noul calcul”** button may only appear inside the **settings** flow. For AC1.4, **do not click it**.  
+Instead, capture `.bt-simulator-de-credit-form-result-total-value` before/after switching tabs and assert the text changes within **1s**.
 
 ---
