@@ -186,11 +186,3 @@ await candidates.first().click();
 - If multiple matches remain after scoping, interact with `.first()`; if uniqueness is a requirement, assert `toHaveCount(1)`.
 
 ---
-
-## References (to share with humans; agents don’t need to click)
-
-- Playwright: Locators & roles (official docs)
-- Playwright: Writing tests & expect assertions (official docs)
-- Playwright: Best practices, fixtures, and POM (official docs)
-- Playwright: Trace viewer & debugging (official docs)
-- Checkly & community guides on “user-first” selectors and anti‑flake patterns
